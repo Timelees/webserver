@@ -1,3 +1,0 @@
-/home/lee/Code/LinuxNet/webserver/build/CMakeFiles/webserver.dir
-/home/lee/Code/LinuxNet/webserver/build/CMakeFiles/edit_cache.dir
-/home/lee/Code/LinuxNet/webserver/build/CMakeFiles/rebuild_cache.dir
