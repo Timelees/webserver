@@ -1,0 +1,69 @@
+#ifndef LOG_HPP
+#define LOG_HPP
+
+#include <stdio.h>
+#include <iostream>
+#include <string>
+#include <pthread.h>
+#include <string.h>
+#include <sys/time.h>
+#include <stdarg.h>
+
+#include "lock/locker.hpp"
+#include "utils/block_queue.hpp"
+class Log{
+public:
+    // 单例模式
+    static Log *get_instance(){
+        static Log instance;
+        return &instance;
+    }
+
+    static void *flush_log_thread(void *args){
+        Log::get_instance()->async_write_log();
+    }
+    // 初始化
+    bool init(const char* file_name, int close_log, int log_buf_size = 8192, int max_lines = 5000000, int max_queue_size = 0);
+
+    bool write_log(std::string level, const char *format, ...);
+
+    void flush(void);
+
+private:
+    Log();
+    virtual ~Log();
+
+    void *async_write_log()
+    {
+        std::string single_log;
+        //从阻塞队列中取出一个日志string，写入文件
+        while (log_queue_->pop(single_log))
+        {
+            mutex_.lock();
+            fputs(single_log.c_str(), fp_);
+            mutex_.unlock();
+        }
+    }
+
+private:
+    char dir_name_[128];      // 日志存放路径
+    char log_name_[128];      // 日志文件名称
+    int log_max_lines_;         // 日志文件最大行数
+    int log_buffer_size_;        // 日志缓冲区大小
+    long long log_lines_counts_;    // 日志行数
+    int today_;                 // 记录当前时间所处日期，日志按天归类
+    FILE *fp_;                  // 打开log的文件指针
+    char *buffer_;              // 缓冲区
+    MutexLock mutex_;           // 互斥锁
+    int close_log_;             // 关闭日志
+    bool is_async_;              // 是否同步标志位
+
+    block_queue<std::string> *log_queue_;   // 日志信息的阻塞队列
+};
+
+#define LOG_DEBUG(format, ...) if(0 == close_log_) {Log::get_instance()->write_log(0, format, ##__VA_ARGS__); Log::get_instance()->flush();}
+#define LOG_INFO(format, ...) if(0 == close_log_) {Log::get_instance()->write_log(1, format, ##__VA_ARGS__); Log::get_instance()->flush();}
+#define LOG_WARN(format, ...) if(0 == close_log_) {Log::get_instance()->write_log(2, format, ##__VA_ARGS__); Log::get_instance()->flush();}
+#define LOG_ERROR(format, ...) if(0 == close_log_) {Log::get_instance()->write_log(3, format, ##__VA_ARGS__); Log::get_instance()->flush();}
+
+#endif 

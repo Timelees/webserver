@@ -5,10 +5,13 @@
 #include <pthread.h>
 #include <cstdio>
 #include <exception>
+#include <unordered_map>
 
 #include "lock/locker.hpp"
 #include "CGImysql/sql_connection_pool.hpp"
-
+#include "threadpool/handle_set.hpp"
+#include "threadpool/thread_set.hpp"
+#include "threadpool/event_handler.hpp"
 
 template <typename T>
 class ThreadPool {
@@ -21,7 +24,7 @@ public:
      * @param thread_num: 线程池中线程的数量
      * @param max_requests: 线程池中允许的最大请求数量
      */
-    ThreadPool(int actor_mode, int concurrent_mode, SQLConnectionPool *sql_conn_pool, int thread_num = 8, int max_requests = 10000);
+    ThreadPool(int actor_mode, int concurrent_mode, SQLConnectionPool *sql_conn_pool, HandleSet *handle_set, int thread_num = 8, int max_requests = 10000);
 
     ~ThreadPool();
 
@@ -39,6 +42,15 @@ public:
      */
     bool append(T *request);
 
+
+    /**
+     * @brief 注册连接到句柄集
+     * @param connfd: 连接的文件描述符
+     * @return true: 注册成功; false: 注册失败
+     */
+    bool registerConnection(int connfd, EventHandler* handler, uint32_t events);
+
+
 private:
     // 工作线程运行函数
     static void* worker(void* arg);
@@ -55,6 +67,11 @@ private:
 
     int actor_mode_;             // 线程池的事件模式(0: Proactor, 1: Reactor)
     int concurrent_mode_;        // 线程池的并发模型(0: 半同步/半异步, 1: 领导者/跟随者)
+
+    // L/F模式内容
+    HandleSet* handle_set_;    // 事件处理器集合
+    ThreadSet thread_set_;     // 线程集合
+    std::unordered_map<int, EventHandler*> lf_handlers_;
 };
 
 

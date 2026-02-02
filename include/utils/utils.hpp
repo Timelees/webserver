@@ -5,10 +5,12 @@
 #include <sys/epoll.h>
 #include <fcntl.h>
 #include <strings.h>
+#include <string.h>
 #include <stdio.h>
-
-
-class utilEpoll{
+#include <sys/socket.h>
+#include <signal.h>
+class utilEpoll
+{
 public:
     utilEpoll();
     ~utilEpoll();
@@ -23,8 +25,15 @@ public:
 
     void modFd(int epoll_fd, int fd, int events, int TRIGMode);
 
+    void signalHandler(int sig);
+
+    void addSignal(int sig, void(handler)(int), bool restart);
+
 public:
     int time_slot_;
+
+    int util_ep_fd_;          // epoll文件描述符 
+    int* util_pipe_fd_;     // 将信号安全的转发到主线程的epoll循环 
 };
 
-#endif  // UTILS_HPP
+#endif // UTILS_HPP

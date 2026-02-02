@@ -25,16 +25,6 @@ public:
     bool join();
 
     /**
-     * @brief 领导者线程检测到IO事件后，进行相应处理
-     */
-    void process_by_leader();
-
-    /**
-     * @brief 指定其他追随者处理事件
-     */
-    void process_by_follower(pthread_t tid);
-
-    /**
      * @brief process_by_leader()后，领导者处于process状态，此时无领导者，设置新的领导者线程
      */
     void promote_new_leader();

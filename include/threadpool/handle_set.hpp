@@ -36,11 +36,11 @@ public:
     void unregister_handle(int fd);
 
     /**
-     * @brief 获取就绪事件中的文件描述符
+     * @brief 获取就绪事件中的处理器
      * @param index 事件索引
      * @return 事件处理器指针和事件类型
      */
-    std::pair<EventHandler*, uint32_t> get_ready_event(int index);
+    std::pair<EventHandler*, uint32_t> get_ready_handler(int index);
 
     int get_epoll_fd() const{ return epoll_fd_; };
 

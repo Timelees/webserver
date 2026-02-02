@@ -1,0 +1,127 @@
+#include "log/log.hpp"
+
+Log::Log(){
+    log_lines_counts_ = 0;
+    is_async_ = false;
+}
+
+Log::Log(){
+    if(fp_ != NULL){
+        fclose(fp_);
+    }
+}
+
+bool Log::init(const char* file_name, int close_log, int log_buf_size, int max_lines, int max_queue_size){
+    // 设置了max_queue_size时，设置异步
+    if(max_queue_size){
+        is_async_ = true;
+        log_queue_ = new block_queue<std::string>(max_queue_size);
+        pthread_t tid;
+        pthread_create(&tid, NULL, flush_log_thread, NULL);
+    }
+    close_log_ = close_log;
+    log_buffer_size_ = log_buf_size;
+    buffer_ = new char[log_buf_size];
+    memset(buffer_, '\0', log_buffer_size_);
+    log_max_lines_ = max_lines;
+
+    time_t cur_time = time(NULL);
+    struct tm *sys_time_info = localtime(&cur_time);    // 系统时间
+    // 获取本地时间,年月日作为日志文件名称
+    int year = sys_time_info->tm_year + 1900;   // 年份需要加上1900
+    int month = sys_time_info->tm_mon + 1;  // 月份从0开始，需要加1
+    int day = sys_time_info->tm_mday;
+    today_ = day;
+    // 判断file_name 是路径目录还是文件
+    char log_full_name[256] = {0};
+
+    const char *p = strrchr(file_name, '/');    // 查找最后一个/所在位置，其前面是目录，后面是文件名
+    if(p != NULL){   
+        strncpy(dir_name_, file_name, p - file_name + 1);
+        strcpy(log_name_, p + 1);  // /后面的为日志文件名
+        snprintf(log_full_name, 255, "%s%d_%02d_%02d_%s", dir_name_, year, month, day, log_name_);
+    }else{  // 日志文件为单文件
+        snprintf(log_full_name, 255, "%d_%02d_%02d_%s", year, month, day, log_name_);
+    }
+    // 打开文件
+    fp_ = fopen(log_full_name, "a");
+    if(fp_ == NULL) return false;
+
+    return true;
+}
+
+bool Log::write_log(std::string level, const char *format, ...){
+    // 日志时间信息
+    struct timeval now = {0, 0};
+    gettimeofday(&now, NULL);
+    time_t t = now.tv_sec;
+    struct tm *local_time = localtime(&t);
+    int year = local_time->tm_year +1900;
+    int month = local_time->tm_mon + 1;
+    int day = local_time->tm_mday;
+    int hour = local_time->tm_hour;
+    int min = local_time->tm_min;
+    int sec = local_time->tm_sec;
+    int usec = now.tv_usec;
+
+    char surfix[16] = {0}; // 等级前缀
+    if(level == "Debug")    strcpy(surfix, "[Debug]--");
+    else if(level == "Info")    strcpy(surfix, "[Info]--");
+    else if(level == "Warn")    strcpy(surfix, "[Warn]--");
+    else if(level == "Error")   strcpy(surfix, "[Error]--");
+
+    // 写日志
+    mutex_.lock();
+    log_lines_counts_++;
+
+    if(today_ != day || log_lines_counts_ % log_max_lines_ == 0){   // 当前要记录的日志不在当天或达到最大行数，则另创新一天的日志文件，再写
+        // 先关闭当前的日志文件
+        fflush(fp_);
+        fclose(fp_);
+        char new_log_name[256] = {0};
+        char log_time_name[16] = {0};   // 日志名中的时间戳部分
+        snprintf(log_time_name, 16, "_%d_%02d_%02d_", year, month, day);
+        
+        if(today_ != day){  // 当前日期不对应时，设置新一天的日志文件名称
+            snprintf(new_log_name, 256, "%s%s%s", dir_name_, log_time_name, log_name_);
+            today_ = day;
+            log_lines_counts_ = 0;
+        }else{  // 达到最大行数
+            snprintf(new_log_name, 256, "%s%s%s.%lld", dir_name_, log_time_name, log_name_, log_lines_counts_ / log_max_lines_);
+        }
+        fp_ = fopen(new_log_name, "a");
+    }
+    mutex_.unlock();
+
+    // 按照格式format输出参数列表中的数据
+    va_list args;
+    va_start(args, format);
+
+    mutex_.lock();
+    // 写入每一段信息前面的时间信息和日志等级
+    int n = snprintf(buffer_, 48, "[%d年-%02d月-%02d日 %02dh:%02dm:%02ds.%06ldus] %s ", year, month, day, hour, min, sec, usec, surfix);
+    int m = vsnprintf(buffer_ + n, log_buffer_size_ - n - 1, format, args); // 按照格式写入数据
+    buffer_[n + m] = '\n';
+    buffer_[n + m + 1] = '\0';
+    std::string log_str = buffer_;
+    mutex_.unlock();
+
+    // 写入文件
+    if(is_async_ && !log_queue_->isFull()){
+        log_queue_->push(log_str);
+    }
+    else{
+        mutex_.lock();
+        fputs(log_str.c_str(), fp_);
+        mutex_.unlock();
+    }
+    va_end(args);
+}
+
+void Log::flush(void)
+{
+    mutex_.lock();
+    //强制刷新写入流缓冲区
+    fflush(fp_);
+    mutex_.unlock();
+}

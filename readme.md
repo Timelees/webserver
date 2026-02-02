@@ -56,13 +56,28 @@ http请求响应
 
 初始化以下内容，数据应从配置文件进行加载读取(==当前未实现配置文件的读取==)
 
-| 变量         | 含义                     |
-| ------------ | ------------------------ |
-| port_        | 端口号                   |
-| linger_mode_ | close行为模式            |
-| trig_mode_   | epoll的触发模式（ET/LT） |
-|              |                          |
-|              |                          |
+| 变量             | 含义                                             |
+| ---------------- | ------------------------------------------------ |
+| port_            | 端口号                                           |
+| linger_mode_     | close行为模式                                    |
+| trig_mode_       | epoll的触发模式（ET/LT）                         |
+| actor_mode_      | 事件分发模型（reactor/proactor）                 |
+| concurrent_mode_ | 并发模型（半同步/半异步模型、领导者/跟随者模型） |
+| db_....          | 数据库的端口，用户，密码，数据库名等内容         |
+|                  |                                                  |
+|                  |                                                  |
+
+#### 数据库连接池和网络连接线程池
+
+通过**setSqlConnPool()和setConnThreadPool()**分别设置数据库连接池和网络连接线程池。
+
+通过获取SQLConnectionPool类型的实例，初始化mysql数据库，并初始化用户数据。
+
+根据concurrent_mode_选择具体的并发模型的线程池处理逻辑。主要包括半同步/半异步模型和领导者/跟随者模型。
+
+
+
+
 
 #### 事件监听初始化——eventListen()
 
@@ -205,6 +220,47 @@ http请求响应
 	```c++
 	 util_epoll_.addFd(ep_fd_, listen_fd_, false, trig_mode_);
 	```
+
+
+
+#### 连接事件处理——handleConnEvent()
+
+webserver类维护一个http_reply类型的users_对象，用来存放http的连接，当新的http连接到来时，初始化连接和mysql连接。
+
+
+
+#### 读事件处理——handleReadEvent()
+
+半同步/半异步的并发模式下的读事件处理，分为使用reactor模式和proactor模式分发事件。
+
+使用reactor模式时，IO事件由线程池的工作线程处理；使用proactor模式时，IO事件由主线程处理
+
+```c
+// reactor 模式：I/O 由工作线程完成
+    if (0 == actor_mode_)
+    {
+        // 设置读状态，将任务加入线程池
+        users_[sock_fd].io_state_ = 0; // 0 表示读状态
+        conn_thread_pool_->append(&users_[sock_fd]);
+        std::cout << "[Reactor] 读事件加入线程池, fd=" << sock_fd << std::endl;
+    }
+    // proactor 模式：主线程完成 I/O，工作线程只处理业务逻辑
+    else
+    {
+        if (users_[sock_fd].read_buffer())
+        { // 主线程读数据成功
+            conn_thread_pool_->append(&users_[sock_fd]);
+            std::cout << "[Proactor] 读取成功，任务加入线程池, fd=" << sock_fd << std::endl;
+        }
+        else
+        {
+            // 读取失败，关闭连接
+            std::cerr << "[Proactor] 读取失败, fd=" << sock_fd << std::endl;
+            util_epoll_.deleteFd(ep_fd_, sock_fd);
+            close(sock_fd);
+        }
+    }
+```
 
 
 

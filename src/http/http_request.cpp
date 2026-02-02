@@ -1,33 +1,16 @@
 #include "http/http_request.hpp"
 #include <unordered_map>
 #include <map>
-http_message::HTTP_CODE http_request::test_function(int sock_fd, const sockaddr_in &addr, char *root)
-{
-    // std::cout << "http_request test function" << std::endl;
-    // parse_request_line(text);
-
-    init(sock_fd, addr, root);
-
-    bool ret = read_buffer();
-    std::cout << "==========读缓冲区数据=========" << std::endl;
-    std::cout << read_buf_ << std::endl;
-    std::cout << "=============================\n"
-              << std::endl;
-
-    http_message::HTTP_CODE status = process_request();
-
-    std::cout << "请求处理状态：" << status << std::endl;
-
-    return status;
-}
 
 // 初始化客户端连接
-void http_request::init(int sockfd, const sockaddr_in &addr, char *root)
+void http_request::init(int sockfd, const sockaddr_in &addr, int epoll_fd, int trig_mode, char *root)
 {
     sockfd_ = sockfd;
     addr_ = addr;
     html_root_ = root;
-
+    epoll_fd_ = epoll_fd;
+    trig_mode_ = trig_mode;
+    util_epoll_.addFd(epoll_fd_, sockfd, false, trig_mode_);
     // 初始化http相关参数
     init();
 }
@@ -79,7 +62,8 @@ void http_request::init_mysql(SQLConnectionPool *conn_pool)
 
     // 获取完整的结果集
     MYSQL_RES *result = mysql_store_result(mysql_);
-    if (!result) return;
+    if (!result)
+        return;
 
     // 从结果集中获取每一行的数据，将用户名和密码预先存入map中
     while (MYSQL_ROW row = mysql_fetch_row(result))
@@ -92,8 +76,10 @@ void http_request::init_mysql(SQLConnectionPool *conn_pool)
 }
 
 // 关闭连接
-void http_request::close_connection(bool real_close){
-    if(real_close && sockfd_ != -1){
+void http_request::close_connection(bool real_close)
+{
+    if (real_close && sockfd_ != -1)
+    {
         std::cout << "close connection: " << sockfd_ << std::endl;
         close(sockfd_);
         sockfd_ = -1;
@@ -377,7 +363,6 @@ http_message::HTTP_CODE http_request::do_request()
     strncpy(html_file_, target_html_file, FILENAME_LEN - 1);
     std::cout << "html文件路径: " << html_file_ << std::endl;
 
-
     // 仅当请求为 POST 且有 body 时，解析 form-urlencoded 的 body 到键值 map
     std::string form_name, form_password;
     if (method_ == POST && content_ != NULL && content_length_ > 0)
@@ -389,7 +374,7 @@ http_message::HTTP_CODE http_request::do_request()
         while (pos < body.size())
         {
             size_t amp = body.find('&', pos);
-            std::string kv = body.substr(pos, (amp==std::string::npos)?std::string::npos:amp-pos);
+            std::string kv = body.substr(pos, (amp == std::string::npos) ? std::string::npos : amp - pos);
             size_t eq = kv.find('=');
             if (eq != std::string::npos)
             {
@@ -506,18 +491,19 @@ http_message::HTTP_CODE http_request::do_request()
     }
 
     // 图片页面
-    if(strcmp(url_, "/pic") == 0){
+    if (strcmp(url_, "/pic") == 0)
+    {
         std::cout << "处理图片请求" << std::endl;
         std::string new_url_ = "picture.html";
         snprintf(html_file_, FILENAME_LEN, "%s/%s", html_root_, new_url_.c_str());
     }
     // 视频播放页面
-    if(strcmp(url_, "/video") == 0){
+    if (strcmp(url_, "/video") == 0)
+    {
         std::cout << "处理视频请求" << std::endl;
         std::string new_url_ = "video.html";
         snprintf(html_file_, FILENAME_LEN, "%s/%s", html_root_, new_url_.c_str());
     }
-
 
     // 获取文件属性，状态存放在file_stat_中
     int ret = stat(html_file_, &file_stat_);
@@ -571,17 +557,47 @@ bool http_request::read_buffer()
         return false;
     }
 
-    // TODO: 根据ET模式或LT模式进行不同的读操作
-
-    // 从sockfd_读取客户端数据（http报文），存入读缓冲区
-    ssize_t n = recv(sockfd_, read_buf_ + read_idx_, READ_BUFFER_SIZE - read_idx_, 0);
-    read_idx_ += n;
-
-    if (n <= 0)
+    // 非阻塞 socket：
+    // - LT: 读一次即可（若 EAGAIN 说明本次没数据，不算错误）
+    // - ET: 必须循环读到 EAGAIN/EWOULDBLOCK 才算把本次事件“吃干净”
+    bool got_any = false;
+    while (true)
     {
+        ssize_t n = recv(sockfd_, read_buf_ + read_idx_, READ_BUFFER_SIZE - read_idx_, 0);
+        if (n > 0)
+        {
+            read_idx_ += n;
+            got_any = true;
+            // 缓冲区满了就返回，交给上层做 BAD_REQUEST/400
+            if (read_idx_ >= READ_BUFFER_SIZE)
+            {
+                return true;
+            }
+            // LT 模式下读一次就够了
+            if (trig_mode_ == 0)
+            {
+                return true;
+            }
+            // ET 继续循环
+            continue;
+        }
+        if (n == 0)
+        {
+            // 对端关闭连接
+            return false;
+        }
+        // n < 0
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+        {
+            // 已经读完本次可读数据：
+            // - 如果之前读到过数据：成功
+            // - 如果一次都没读到：本次事件可能是边缘触发误唤醒/竞态，不应关闭连接
+            return got_any;
+        }
+        if (errno == EINTR)
+        {
+            continue;
+        }
         return false;
     }
-
-    return true;
 }
-

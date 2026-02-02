@@ -22,8 +22,7 @@ public:
     http_request(){}
     ~http_request(){}
 
-    http_message::HTTP_CODE test_function(int sockfd, const sockaddr_in& addr, char* root);
-    void init(int sockfd, const sockaddr_in& addr, char* root); // 初始化客户端连接
+    void init(int sockfd, const sockaddr_in &addr, int epoll_fd, int trig_mode, char *root); // 初始化客户端连接
     bool read_buffer();   // 读取客户端数据，将报文数据存入读缓冲区
 
     void init_mysql(SQLConnectionPool *conn_pool);
@@ -70,6 +69,10 @@ private:
 
     
 public:
+    int epoll_fd_;                  // epoll文件描述符
+    utilEpoll util_epoll_;
+    int trig_mode_;                 // 触发模式 
+
     int io_state_;                   // I/O状态: 0表示读状态，1表示写状态
     int improved_state_;                // 处理状态: 0表示未处理，1表示已处理
     int timer_flag_;                     // 定时器标志
@@ -82,7 +85,7 @@ public:
     SQLConnectionPool *sql_conn_pool_; // 指向全局连接池，用于按需获取连接
     struct stat file_stat_;            // 目标文件的状态
 
-    std::map<std::string, std::string> user_data_;      // 存储用户数据
+    std::map<std::string, std::string> user_data_;      // 存储用户数据(用户名，密码)
     int user_count_;                                   // 用户数量
     MutexLock locker_;     // 线程锁
 
