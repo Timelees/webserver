@@ -25,6 +25,12 @@
 #include <time.h>
 #include <iostream>
 
+#include "log/log.hpp"
+
+// LOG_INFO/LOG_ERROR 宏依赖一个名为 close_log_ 的变量。
+// 其他模块（如 WebServer）通常有成员 close_log_，但定时器模块是独立编译单元，
+// 在此提供一个“兜底”开关，避免在 timer.cpp 使用 LOG_INFO 时出现未定义符号。
+// 语义：close_log_==0 表示开启日志；==1 表示关闭日志。
 class util_timer;
 
 // 连接资源

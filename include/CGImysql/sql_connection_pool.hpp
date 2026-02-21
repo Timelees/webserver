@@ -8,7 +8,7 @@
 #include <list>
 #include <unordered_map>
 #include "../lock/locker.hpp"
-
+#include "../log/log.hpp"
 // 数据库连接池类
 class SQLConnectionPool{
 public:
@@ -26,7 +26,7 @@ public:
     }
 
     // 初始化数据库连接池
-    void init(std::string url, std::string User, std::string PassWord, std::string DataBaseName, int Port, int MaxConn, bool close_log);
+    void init(std::string url, std::string User, std::string PassWord, std::string DataBaseName, int Port, int MaxConn, int close_log);
 
 private:
     SQLConnectionPool();
@@ -46,7 +46,7 @@ public:
     std::string user_;         // 登录数据库用户名
     std::string password_;     // 登录数据库密码
     std::string database_name_;// 数据库名称
-    bool close_log_ = true;	//日志开关
+    int close_log_ = 0;	//日志开关
 
 };
 

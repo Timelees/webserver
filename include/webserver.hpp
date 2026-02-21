@@ -21,6 +21,7 @@
 #include "CGImysql/sql_connection_pool.hpp"
 #include "threadpool/thread_pool.hpp"
 #include "threadpool/handle_set.hpp"
+#include "log/log.hpp"
 
 const int MAX_EVENT_NUMBER = 10000; // epoll事件表最大事件数
 const int MAX_FD = 65536;           // 最大文件描述符数
@@ -33,11 +34,13 @@ public:
 
     // 初始化服务器
     void init(int port, int linger_mode, int trig_mode, int actor_mode, int concurrent_mode,
-            int db_host, std::string db_user, std::string db_password, std::string db_name, int sql_num);
+            int db_host, std::string db_user, std::string db_password, std::string db_name, int sql_num, int close_log, int log_write, int thread_num);
     // 设置监听
     void eventListen();
     // epoll触发模式设置
     void trigMode();
+    // 日志设置
+    void setLog();
     // 设置数据库连接池
     void setSqlConnPool();
     // 设置网络连接线程池
@@ -87,7 +90,10 @@ public:
 
     bool time_out_ = false;     // 超时标志
     bool stop_server_ = false;      // 服务关闭标志
-    bool close_log_ = true;    // 关闭日志
+
+    int close_log_ = 0;    // 关闭日志, 默认不关闭
+    int log_write_ = 0;    // 日志写入方式, 默认同步
+    bool log_asyc_ = true;     // 异步日志
 
     utilEpoll util_epoll_;
     int ep_fd_;                // epoll文件描述符 
@@ -109,7 +115,8 @@ public:
 
     // 网络连接线程池
     ThreadPool<http_reply> *conn_thread_pool_;
-
+    int thread_num_;
+    
     HandleSet* handle_set_;    // 事件处理器集合
 
     // 定时器

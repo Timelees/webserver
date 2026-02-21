@@ -26,9 +26,6 @@ bool http_reply::add_response(const char* format, ...){
     write_idx_ += len;  // 更新写缓冲区指针指向
     va_end(arg_list);
 
-    // TODO: debug日志
-    // std::cout << "request: " << write_buf_ << std::endl;
-
     return true;
 }
 

@@ -42,13 +42,17 @@ WebServer::~WebServer()
 }
 
 void WebServer::init(int port, int linger_mode, int trig_mode, int actor_mode, int concurrent_mode,
-                     int db_host, std::string db_user, std::string db_password, std::string db_name, int sql_num)
+                     int db_host, std::string db_user, std::string db_password, std::string db_name, int sql_num, int close_log,int log_write,int thread_num)
 {
     port_ = port;
     linger_mode_ = linger_mode;
     trig_mode_ = trig_mode;
     actor_mode_ = actor_mode;
     concurrent_mode_ = concurrent_mode;
+
+    close_log_ = close_log;
+    log_write_ = log_write;
+    thread_num_ = thread_num;
 
     // 数据库设置
     db_host_ = db_host;
@@ -89,28 +93,36 @@ void WebServer::trigMode()
         listen_trig_mode_ = 1;
         conn_trig_mode_ = 1;
     }
-    std::cout << "===============触发模式配置=============" << std::endl;
-    std::cout << "listen触发模式：" << (listen_trig_mode_ ? "ET" : "LT") << std::endl;
-    std::cout << "connect触发模式：" << (conn_trig_mode_ ? "ET" : "LT") << std::endl;
-
+    LOG_INFO("%s", "===============触发模式配置=============");
+    LOG_INFO("%s%s", "listen触发模式: ", listen_trig_mode_ ? "ET" : "LT");
+    LOG_INFO("%s%s", "connect触发模式: ", conn_trig_mode_ ? "ET" : "LT");
+    LOG_INFO("%s", "=====================================");
+}
+// 日志设置
+void WebServer::setLog(){
+    if(!close_log_){
+        Log::get_instance()->init("./webserver.log", close_log_, 8192, 5000000, 1000);  // 使用异步日志
+    }else{
+        Log::get_instance()->init("./webserver.log", close_log_, 8192, 5000000, 0);     // 使用同步日志
+    }
 }
 
 // 设置数据库连接池
 void WebServer::setSqlConnPool()
 {
     sql_conn_pool_ = SQLConnectionPool::GetInstance();
-    sql_conn_pool_->init("localhost", db_user_, db_password_, db_name_, db_host_, sql_num_, close_log_);
+    sql_conn_pool_->init("localhost", db_user_, db_password_, db_name_, db_host_, sql_num_, (int)close_log_);
 
     // 使用 users_[0] 来初始化用户数据（预加载到静态 map）
     users_[0].init_mysql(sql_conn_pool_);
 
-    std::cout << "=================数据库连接池配置===========================" << std::endl;
-    std::cout << "webserver user_data_(使用users_[0]存储数据库信息): " << std::endl;
+    LOG_INFO("%s", "=================数据库连接池配置===========================");
+    LOG_INFO("%s", "webserver user_data_(使用users_[0]存储数据库信息): ");
     for (auto &user : users_[0].user_data_)
     {
-        std::cout << "username: " << user.first << ", password: " << user.second << std::endl;
+        LOG_INFO("--%s", ("username: " + user.first + ", password: " + user.second).c_str());
     }
-    std::cout << "==========================================================" << std::endl;
+    LOG_INFO("%s", "==========================================================");
 }
 // 设置网络连接线程池
 void WebServer::setConnThreadPool()
@@ -118,13 +130,19 @@ void WebServer::setConnThreadPool()
     if (concurrent_mode_ == 0)
     {
         // 半同步/半异步模型
-        conn_thread_pool_ = new ThreadPool<http_reply>(actor_mode_, concurrent_mode_, sql_conn_pool_, nullptr, 8, 100);
+        conn_thread_pool_ = new ThreadPool<http_reply>(actor_mode_, concurrent_mode_, sql_conn_pool_, nullptr, thread_num_, 100);
+        LOG_INFO("%s", "=================连接线程池配置=============================");
+        LOG_INFO("%s", "连接线程池类型: 半同步/半异步");
+        LOG_INFO("%s", "==========================================================");
     }
     else
     {
         // 领导者/跟随者模型
         handle_set_ = new HandleSet(MAX_EVENT_NUMBER);
         conn_thread_pool_ = new ThreadPool<http_reply>(actor_mode_, concurrent_mode_, sql_conn_pool_, handle_set_, 8, 100);
+        LOG_INFO("%s", "=================连接线程池配置=============================");
+        LOG_INFO("%s", "连接线程池类型: 领导者/跟随者");
+        LOG_INFO("%s", "==========================================================");
     }
 }
 
@@ -139,11 +157,11 @@ void WebServer::setClientTimer(int conn_fd, struct sockaddr_in client_addr)
     time_t cur = time(nullptr);
     timer->expire = cur + 3 * TIMESLOT;  // 设置超时时间为3个时间槽
     users_data_[conn_fd].timers = timer; // 保存客户端对应的定时器，超时则触发回调cb_func关闭连接
-    std::cout << "[WebServer::setClientTimer] add timer fd=" << conn_fd << " expire=" << timer->expire << " now=" << cur << std::endl;
+    LOG_INFO("%s", ("[WebServer::setClientTimer] add timer fd=" + std::to_string(conn_fd) + " expire=" + std::to_string(timer->expire) + " now=" + std::to_string(cur)).c_str());
     if (timer_manager_)
         timer_manager_->add_timer(timer);
     // 测试部分，打印当前的定时器列表
-    std::cout << "[WebServer::setClientTimer] current timer_manager " << std::endl;
+    LOG_INFO("%s", "[WebServer::setClientTimer] current timer_manager ");
     timer_manager_->print_timer();
 }
 
@@ -151,7 +169,7 @@ void WebServer::cb_func(client_data *user_data)
 {
     // 处理超时事件
     const int fd = user_data->sockfd;
-    std::cout << "[WebServer::cb_func Timer] client fd=" << fd << " time out, closing..." << std::endl;
+    LOG_INFO("%s", ("[WebServer::cb_func Timer] client fd=" + std::to_string(fd) + " time out, closing...").c_str());
 
     // 从内核事件表中删除该连接
     util_epoll_.deleteFd(ep_fd_, fd);
@@ -163,7 +181,8 @@ void WebServer::cb_func(client_data *user_data)
     // 连接资源数减一（下限保护）
     if (conn_count_ > 0)
         conn_count_--;
-    std::cout << "[WebServer::cb_func] active=" << conn_count_ << " (after timeout close)" << std::endl;
+
+    LOG_INFO("%s", ("[WebServer::cb_func] active=" + std::to_string(conn_count_) + " (after timeout close)").c_str());
 }
 
 // static bridge
@@ -226,8 +245,8 @@ void WebServer::eventListen()
     server_addr.sin_family = AF_INET;                // IPV4地址
     server_addr.sin_addr.s_addr = htonl(INADDR_ANY); // 绑定到任意IP地址
     server_addr.sin_port = htons(port_);             // 端口号转换为网络字节序
-    std::cout << "[WebServer::eventListen] listen_fd = " << listen_fd_ << std::endl; 
-    std::cout << "WebServer listening on port: " << port_ << std::endl;
+    LOG_INFO("%s", ("[WebServer::eventListen] listen_fd = " + std::to_string(listen_fd_)).c_str());
+    LOG_INFO("%s", ("[WebServer::eventListen] WebServer listening on port: " + std::to_string(port_)).c_str());
     // 绑定监听套接字
     int ret = bind(listen_fd_, (struct sockaddr *)&server_addr, sizeof(server_addr));
     if (ret == -1)
@@ -249,7 +268,7 @@ void WebServer::eventListen()
     // epoll内核事件表创建
     epoll_event events[MAX_EVENT_NUMBER];
     ep_fd_ = epoll_create(1024);
-    std::cout << "[WebServer::eventListen] epoll_fd = " << ep_fd_ << std::endl; 
+    LOG_INFO("%s", ("[WebServer::eventListen] epoll_fd = " + std::to_string(ep_fd_)).c_str());
     if (ep_fd_ == -1)
     {
         perror("epoll_create failed");
@@ -287,8 +306,8 @@ void WebServer::adjust_timer(int sock_fd, util_timer *timer)
     timer->expire = cur + 3 * TIMESLOT;
     timer_manager_->resort_timer(timer);
 
-    std::cout << "[WebServer::adjust_timer] 客户端(fd =" << sock_fd << ")有数据传输--（活跃连接），延长定时器超时时间" << std::endl;
-    std::cout << "调整后的定时器列表：" << std::endl;
+    LOG_INFO("%s", ("[WebServer::adjust_timer] 客户端(fd =" + std::to_string(sock_fd) + ")有数据传输--（活跃连接），延长定时器超时时间").c_str());
+    LOG_INFO("%s", "[WebServer::adjust_timer] 调整后的定时器列表：");
     timer_manager_->print_timer();
 }
 
@@ -305,8 +324,9 @@ void WebServer::delete_timer(int sock_fd, util_timer *timer)
         users_data_[sock_fd].timers = nullptr;
     }
     delete timer;
-    std::cout << "[WebServer::delete_timer] remove timer fd=" << sock_fd << std::endl;
-    std::cout << "移除后的定时器列表：" << std::endl;
+   
+    LOG_INFO("%s", ("[WebServer::delete_timer] remove timer fd=" + std::to_string(sock_fd)).c_str());
+    LOG_INFO("%s", "[WebServer::delete_timer] 移除后的定时器列表：");
     timer_manager_->print_timer();
 }
 
@@ -317,13 +337,13 @@ void WebServer::handleConnEvent(int sock_fd)
     users_[sock_fd].init(sock_fd, client_addr_, ep_fd_, trig_mode_, html_root_);
     users_[sock_fd].init_mysql(sql_conn_pool_); // 设置连接池指针，便于按需获取 MySQL 连接
 
-    std::cout << "[WebServer::handleConnEvent] Init Event ( " << sock_fd << " ) 到users_[ " << sock_fd << " ]" << std::endl;
+    LOG_INFO("%s", ("[WebServer::handleConnEvent] Init Event ( " + std::to_string(sock_fd) + " ) 到users_[ " + std::to_string(sock_fd) + " ]").c_str());
 }
 
 // 处理读事件
 void WebServer::handleReadEvent(int sock_fd)
 {
-    std::cout << "[WebServer::handleReadEvent] 处理读事件(sockfd = " << sock_fd << ")" << std::endl;
+    LOG_INFO("%s", ("[WebServer::handleReadEvent] 处理读事件(sockfd = " + std::to_string(sock_fd) + ")").c_str());
     util_timer *timer = users_data_[sock_fd].timers;
 
     // reactor 模式：I/O 由工作线程完成
@@ -337,7 +357,7 @@ void WebServer::handleReadEvent(int sock_fd)
         // 设置读状态，将任务加入线程池
         users_[sock_fd].io_state_ = 0; // 0 表示读状态
         conn_thread_pool_->append(&users_[sock_fd]);
-        std::cout << "[WebServer::handleReadEvent--Reactor] 读事件加入线程池, fd=" << sock_fd << std::endl;
+        LOG_INFO("%s", ("[WebServer::handleReadEvent--Reactor] 读事件加入线程池, fd=" + std::to_string(sock_fd)).c_str());
 
         // 主线程需要等工作线程完成后才能知道连接的最终状态（比如是否需要关闭、是否需要移除定时器）
         // 等待工作线程把 users[sockfd].improv 设为 1”作为完成信号，然后由主线程去处理 timer_flag（关闭连接等）并重置标志
@@ -361,8 +381,7 @@ void WebServer::handleReadEvent(int sock_fd)
         if (users_[sock_fd].read_buffer())
         { // 主线程读数据成功
             conn_thread_pool_->append(&users_[sock_fd]);
-            std::cout << "[WebServer::handleReadEvent--Proactor] 读取成功，任务加入线程池, fd=" << sock_fd << std::endl;
-
+            LOG_INFO("%s", ("[WebServer::handleReadEvent--Proactor] 读取成功，任务加入线程池, fd=" + std::to_string(sock_fd)).c_str());
             if (timer)
             {
                 adjust_timer(sock_fd, timer);
@@ -373,9 +392,8 @@ void WebServer::handleReadEvent(int sock_fd)
         else
         {
             // 读取失败，关闭连接
-            std::cerr << "[WebServer::handleReadEvent--Proactor] 读取失败, fd=" << sock_fd << std::endl;
-            // util_epoll_.deleteFd(ep_fd_, sock_fd);
-            // close(sock_fd);
+            LOG_ERROR("%s", ("[WebServer::handleReadEvent--Proactor] 读取失败, fd=" + std::to_string(sock_fd)).c_str());
+            
             delete_timer(sock_fd, timer); // 移除定时器的同时，会关闭相关连接并移除epoll内核事件表上的事件
         }
     }
@@ -392,7 +410,7 @@ void WebServer::handleWriteEvent(int sock_fd)
         // 设置写状态，将任务加入线程池
         users_[sock_fd].io_state_ = 1; // 1 表示写状态
         conn_thread_pool_->append(&users_[sock_fd]);
-        std::cout << "[WebServer::handleReadEvent--Reactor] 写事件加入线程池, fd=" << sock_fd << std::endl;
+        LOG_INFO("%s", ("[WebServer::handleWriteEvent--Reactor] 写事件加入线程池, fd=" + std::to_string(sock_fd)).c_str());
 
         while (true)
         {
@@ -413,7 +431,7 @@ void WebServer::handleWriteEvent(int sock_fd)
     {
         if (users_[sock_fd].write(sock_fd))
         {
-            std::cout << "[WebServer::handleReadEvent--Proactor] 写数据成功, fd=" << sock_fd << std::endl;
+            LOG_INFO("%s", ("[WebServer::handleWriteEvent--Proactor] 写数据成功, fd=" + std::to_string(sock_fd)).c_str());
             if (timer)
             {
                 adjust_timer(sock_fd, timer);
@@ -421,7 +439,7 @@ void WebServer::handleWriteEvent(int sock_fd)
         }
         else
         {
-            std::cerr << "[WebServer::handleReadEvent--Proactor] 写数据失败, fd=" << sock_fd << std::endl;
+            LOG_ERROR("%s", ("[WebServer::handleWriteEvent--Proactor] 写数据失败, fd=" + std::to_string(sock_fd)).c_str());
             delete_timer(sock_fd, timer);
         }
     }
@@ -440,23 +458,23 @@ bool WebServer::acceptConnections()
             perror("accept error");
             return false;
         }
-        std::cout << "[Webserver-acceptConnections] 当前客户端连接数： " << conn_count_ << std::endl;
+        LOG_INFO("%s", ("[Webserver-acceptConnections] 新连接建立, fd=" + std::to_string(connfd)).c_str());
+        LOG_INFO("%s", ("[Webserver-acceptConnections] 当前客户端连接数： " + std::to_string(conn_count_)).c_str());
         if (conn_count_ >= MAX_FD)
         {
-            std::cerr << "连接数超过最大限制--" << MAX_FD << std::endl;
+            LOG_ERROR("%s", ("[Webserver-acceptConnections] 连接数超过最大限制--" + std::to_string(MAX_FD)).c_str());
             return false;
         }
         // 初始化该连接的 http 对象
         handleConnEvent(connfd);
 
-
-        std::cout << "[Webserver-acceptConnections] 新连接建立, fd=" << connfd << std::endl;
+        LOG_INFO("%s", ("[Webserver-acceptConnections] 新连接建立, fd=" + std::to_string(connfd)).c_str());
 
         // 设置当前连接的定时器
         setClientTimer(connfd, client_address);
 
         conn_count_++;
-        std::cout << "[WebServer::cb_func] active=" << conn_count_ << " (after accept)" << std::endl;
+        LOG_INFO("%s", ("[WebServer::cb_func] active=" + std::to_string(conn_count_) + " (after accept)").c_str());
     }
     else
     { // ET模式的监听连接
@@ -468,22 +486,22 @@ bool WebServer::acceptConnections()
                 perror("accept error");
                 return false;
             }
-            std::cout << "[Webserver-acceptConnections] 当前客户端连接数： " << conn_count_ << std::endl;
+            LOG_INFO("%s", ("[Webserver-acceptConnections] 当前客户端连接数： " + std::to_string(conn_count_)).c_str());
             if (conn_count_ >= MAX_FD)
             {
-                std::cerr << "连接数超过最大限制--" << MAX_FD << std::endl;
+                LOG_ERROR("%s", ("[Webserver-acceptConnections] 连接数超过最大限制--" + std::to_string(MAX_FD)).c_str());
                 return false;
             }
             // 初始化该连接的 http 对象
             handleConnEvent(connfd);
 
-            std::cout << "[Webserver-acceptConnections] 新连接建立, fd=" << connfd << " (epoll registered in init)" << std::endl;
+            LOG_INFO("%s", ("[Webserver-acceptConnections] 新连接建立, fd=" + std::to_string(connfd) + " (epoll registered in init)").c_str());
 
             // 设置当前连接的定时器
             setClientTimer(connfd, client_address);
 
             conn_count_++;
-            std::cout << "[Webserver-acceptConnections] 当前激活的连接数 active=" << conn_count_ << " (after accept)" << std::endl;
+            LOG_INFO("%s", ("[Webserver-acceptConnections] 当前激活的连接数 active=" + std::to_string(conn_count_) + " (after accept)").c_str());
         }
         return false;
     }
@@ -533,7 +551,7 @@ void WebServer::eventLoop()
         if (concurrent_mode_ == 0)
         { // 半同步/半异步模型：主线程做epoll_wait, 工作线程处理I/O
             int ready_fds = epoll_wait(ep_fd_, events, MAX_EVENT_NUMBER, -1);
-            std::cout << "[WebServer::eventLoop] 就绪的事件数ready_fds = " << ready_fds << std::endl;
+            LOG_INFO("%s", ("[WebServer::eventLoop] 就绪的事件数ready_fds = " + std::to_string(ready_fds)).c_str());
             if (ready_fds == -1)
             {
                 if (errno == EINTR)
@@ -549,18 +567,18 @@ void WebServer::eventLoop()
                 // 检测并接收新的客户端连接
                 if (sockfd == listen_fd_)
                 {
-                    std::cout << "[WebServer::eventLoop] 新的客户端连接sockfd = " << sockfd << std::endl;
+                    LOG_INFO("%s", ("[WebServer::eventLoop] 新的客户端连接sockfd = " + std::to_string(sockfd)).c_str());
                     bool flag = acceptConnections(); // 接收新连接
                     if (!flag)
                     {
-                        std::cout << "[WebServer::eventLoop] acceptConnections failed for listen_fd=" << listen_fd_ << std::endl;
+                        LOG_ERROR("%s", ("[WebServer::eventLoop] acceptConnections failed for listen_fd=" + std::to_string(listen_fd_)).c_str());
                         continue; // accept失败，说明不是新的连接，应该处理客户端事件的数据
                     }
                 }
                 else if (events[i].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR))
                 {
                     // 客户端关闭连接或出错
-                    std::cout << "[WebServer::eventLoop] 连接关闭或错误, fd=" << sockfd << std::endl;
+                    LOG_ERROR("%s", ("[WebServer::eventLoop] 连接关闭或错误, fd=" + std::to_string(sockfd)).c_str());
                     util_epoll_.deleteFd(ep_fd_, sockfd);
                     close(sockfd);
                     if (users_data_[sockfd].timers)
@@ -570,12 +588,12 @@ void WebServer::eventLoop()
                     }
                     if (conn_count_ > 0)
                         conn_count_--;
-                    std::cout << "[WebServer::eventLoop] active=" << conn_count_ << " (after error close)" << std::endl;
+                    LOG_INFO("%s", ("[WebServer::eventLoop] active=" + std::to_string(conn_count_) + " (after error close)").c_str());
                 }
                 else if ((sockfd == pipe_fd_[0]) && (events[i].events & EPOLLIN)){
                     bool flag = dealWithSignal(time_out_, stop_server_);
                     if(false == flag){
-                        std::cout << "[WebServer::eventLoop] 处理客户端连接失败" << std::endl;
+                        LOG_ERROR("%s", "[WebServer::eventLoop] 处理客户端连接失败");
                     }
                 }
                 else if (events[i].events & EPOLLIN)
@@ -590,7 +608,7 @@ void WebServer::eventLoop()
    
             if (time_out_ )
             {   
-                std::cout << "[WebServer::eventLoop] 定期清除超时的定时器" << std::endl;
+                LOG_INFO("%s", "[WebServer::eventLoop] 定期清除超时的定时器");
                 if (timer_manager_)
                 {
                     timer_manager_->timer_handler();

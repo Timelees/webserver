@@ -34,7 +34,7 @@ private:
     int bytes_to_send_;         // 待发送的字节数
 public:
     bool keep_alive_;                   // 是否保持连接
-
+    int close_log_ = 0;                 // 关闭连接日志
     bool process_reply(HTTP_CODE ret);       // 处理生成响应内容
     bool write(int sockfd);  
     

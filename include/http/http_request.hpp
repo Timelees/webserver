@@ -76,7 +76,7 @@ public:
     int io_state_;                   // I/O状态: 0表示读状态，1表示写状态
     int improved_state_;                // 处理状态: 0表示未处理，1表示已处理
     int timer_flag_;                     // 定时器标志
-
+    int close_log_ = 0;                 // 关闭连接日志
     char* html_root_;                // html文件根目录
     char html_file_[FILENAME_LEN];   // 客户请求的目标文件的完整路径
     char* html_file_addr_;         // 目标文件被mmap到内存中的起始位置

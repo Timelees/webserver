@@ -1,29 +1,34 @@
 #include "webserver.hpp"
+#include "utils/config.hpp"
 #include <string>
 int main(int  argc, char *argv[]){
-    // TODO: 从配置文件加载
-    // 数据库设置
-    int db_host_ = 8888;
-    std::string db_user_ = "lee";
-    std::string db_password_ = "123";
-    std::string db_name_ = "webserverDB";
-    int sql_num_ = 8;      // 数据库连接池数量
+    Config config;
+    config.parse_arg(argc, argv);
 
-    // 初始化服务器
     WebServer server;
-    
-    // TODO：从配置文件加载
-    int port_ = 8888;            // 端口
-    int linger_mode_ = 0;       // 连接模型
-    int trig_mode_ = 1;         // epoll工作模式  ,LT: 0, ET: 1
-    int actor_mode_ = 1;        // 事件模型，Proactor：1，Reactor：0
-    int concurrent_mode_ = 0;   // 并发模型，0：半同步/半异步模型，1：领导者/跟随者模型
-    
 
-    db_host_ = port_;
+    // 数据库设置
+    int db_host_ = config.port_;
+    std::string db_user_ = config.db_user_;
+    std::string db_password_ = config.db_password_;
+    std::string db_name_ = config.db_name_;
+    int sql_num_ = config.sql_num_;
 
+    int port_ = config.port_;
+    int linger_mode_ = config.linger_mode_;
+    int trig_mode_ = config.trig_mode_;
+    int actor_mode_ = config.actor_mode_;
+    int concurrent_mode_ = config.concurrent_mode_;
+    int close_log_ = config.close_log_;
+    int log_write_ = config.log_write_;
+    int thread_num_ = config.thread_num_;
+    
+    // 初始化服务器
     server.init(port_, linger_mode_, trig_mode_, actor_mode_, concurrent_mode_,
-                db_host_, db_user_, db_password_, db_name_, sql_num_);
+                db_host_, db_user_, db_password_, db_name_, sql_num_, close_log_, log_write_, thread_num_);
+
+    // 日志初始化
+    server.setLog();
 
     // 数据库初始化
     server.setSqlConnPool();

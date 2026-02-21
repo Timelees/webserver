@@ -3,12 +3,33 @@
 Log::Log(){
     log_lines_counts_ = 0;
     is_async_ = false;
+    fp_ = NULL;
+    buffer_ = NULL;
+    log_queue_ = NULL;
+    close_log_ = 0;
+    today_ = 0;
+    log_max_lines_ = 0;
+    log_buffer_size_ = 0;
+    memset(dir_name_, '\0', sizeof(dir_name_));
+    memset(log_name_, '\0', sizeof(log_name_));
 }
 
-Log::Log(){
+Log::~Log(){
+    mutex_.lock();
     if(fp_ != NULL){
+        fflush(fp_);
         fclose(fp_);
+        fp_ = NULL;
     }
+    if(buffer_){
+        delete[] buffer_;
+        buffer_ = NULL;
+    }
+    if(log_queue_){
+        delete log_queue_;
+        log_queue_ = NULL;
+    }
+    mutex_.unlock();
 }
 
 bool Log::init(const char* file_name, int close_log, int log_buf_size, int max_lines, int max_queue_size){
@@ -62,7 +83,7 @@ bool Log::write_log(std::string level, const char *format, ...){
     int hour = local_time->tm_hour;
     int min = local_time->tm_min;
     int sec = local_time->tm_sec;
-    int usec = now.tv_usec;
+    long int usec = now.tv_usec;
 
     char surfix[16] = {0}; // 等级前缀
     if(level == "Debug")    strcpy(surfix, "[Debug]--");
@@ -99,7 +120,7 @@ bool Log::write_log(std::string level, const char *format, ...){
 
     mutex_.lock();
     // 写入每一段信息前面的时间信息和日志等级
-    int n = snprintf(buffer_, 48, "[%d年-%02d月-%02d日 %02dh:%02dm:%02ds.%06ldus] %s ", year, month, day, hour, min, sec, usec, surfix);
+    int n = snprintf(buffer_, 48, "[%d年-%02d月-%02d日 %02dh:%02dm:%02ds] %s ", year, month, day, hour, min, sec, surfix);
     int m = vsnprintf(buffer_ + n, log_buffer_size_ - n - 1, format, args); // 按照格式写入数据
     buffer_[n + m] = '\n';
     buffer_[n + m + 1] = '\0';
@@ -116,6 +137,8 @@ bool Log::write_log(std::string level, const char *format, ...){
         mutex_.unlock();
     }
     va_end(args);
+
+    return true;
 }
 
 void Log::flush(void)

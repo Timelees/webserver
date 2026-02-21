@@ -57,13 +57,13 @@ bool ThreadPool<T>::appendWithState(T *task, int state)
 {
     if (task == nullptr)
     {
-        std::cerr << "[ThreadPool] 任务指针为空" << std::endl;
+        LOG_ERROR("%s", "[ThreadPool] 任务指针为空");
         return false;
     }
     queue_locker_.lock();
     if (task_queue_.size() >= max_requests_)
     {
-        std::cerr << "[ThreadPool] Task队列已满" << std::endl;
+        LOG_ERROR("%s", "[ThreadPool] Task队列已满");
         queue_locker_.unlock();
         return false;
     }
@@ -80,13 +80,13 @@ bool ThreadPool<T>::append(T *task)
 {
     if (task == nullptr)
     {
-        std::cerr << "[ThreadPool] 任务指针为空" << std::endl;
+        LOG_ERROR("%s", "[ThreadPool] 任务指针为空");
         return false;
     }
     queue_locker_.lock();
     if (task_queue_.size() >= max_requests_)
     {
-        std::cerr << "[ThreadPool] Task队列已满" << std::endl;
+        LOG_ERROR("%s", "[ThreadPool] Task队列已满");
         queue_locker_.unlock();
         return false;
     }
@@ -137,7 +137,7 @@ void ThreadPool<T>::run_HS_HA()
     static std::mutex log_mutex;
     {
         std::lock_guard<std::mutex> lg(log_mutex);
-        std::cout << "[ThreadPool][HS/HA][#" << hs_id << "][tid=" << pthread_self() << "] 启动" << std::endl;
+        LOG_INFO("%s", ("[ThreadPool][HS/HA][#" + std::to_string(hs_id) + "][tid=" + std::to_string(pthread_self()) + "] 启动").c_str());
     }
     while (true)
     {
@@ -161,18 +161,18 @@ void ThreadPool<T>::run_HS_HA()
             // 处理请求
             if (0 == task->io_state_)
             { // 读状态
-                std::cout << "[ThreadPool] Reactor 读取数据, fd=" << task->get_sockfd() << std::endl;
+                LOG_INFO("%s", ("[ThreadPool] Reactor 读取数据, fd=" + std::to_string(task->get_sockfd())).c_str());
                 bool ret = task->read_buffer();
                 if (ret)
                 {
-                    std::cout << "[ThreadPool] 读取成功, 开始处理请求" << std::endl;
+                    LOG_INFO("%s", "[ThreadPool] 读取成功, 开始处理请求");
                     task->improved_state_ = 1; // 标记为已处理
                     // 按需获取数据库连接（RAII 作用域内有效）
                     SQLConnectionRAII mysqlconn(&task->mysql_, sql_conn_pool_);
 
                     // 1. 解析 HTTP 请求，得到处理结果码
                     http_message::HTTP_CODE read_ret = task->process_request();
-                    std::cout << "[ThreadPool] 请求解析结果: " << read_ret << std::endl;
+                    LOG_INFO("%s", ("[ThreadPool] 请求解析结果: " + std::to_string(read_ret)).c_str());
 
                     // 2. 初始化响应相关参数
                     task->init_reply();
@@ -181,23 +181,23 @@ void ThreadPool<T>::run_HS_HA()
                     bool write_ok = task->process_reply(read_ret);
                     if (!write_ok)
                     {
-                        std::cout << "[ThreadPool] 生成响应失败" << std::endl;
+                        LOG_ERROR("%s", "[ThreadPool] 生成响应失败");
                         task->timer_flag_ = 1;
                         task->close_connection(true);
                         continue;
                     }
 
                     // 4. 发送响应到客户端
-                    std::cout << "[ThreadPool] 发送响应, fd=" << task->get_sockfd() << std::endl;
+                    LOG_INFO("%s", ("[ThreadPool] 发送响应, fd=" + std::to_string(task->get_sockfd())).c_str());
                     if (!task->write(task->get_sockfd()))
                     {
-                        std::cout << "[ThreadPool] 发送响应失败" << std::endl;
+                        LOG_ERROR("%s", "[ThreadPool] 发送响应失败");
                         task->timer_flag_ = 1;
                         task->close_connection(true);
                     }
                     else
                     {
-                        std::cout << "[ThreadPool] 发送响应成功" << std::endl;
+                        LOG_INFO("%s", "[ThreadPool] 发送响应成功");
                         // 非长连接则关闭
                         if (!task->is_keep_alive())
                         {
@@ -207,7 +207,7 @@ void ThreadPool<T>::run_HS_HA()
                 }
                 else
                 {
-                    std::cout << "[ThreadPool] 读取数据失败, fd=" << task->get_sockfd() << std::endl;
+                    LOG_ERROR("%s", ("[ThreadPool] 读取数据失败, fd=" + std::to_string(task->get_sockfd())).c_str());
                     task->improved_state_ = 1;
                     task->timer_flag_ = 1;
                     task->close_connection(true);
@@ -268,11 +268,11 @@ void ThreadPool<T>::run_L_F()
     static std::mutex log_mutex;
     {
         std::lock_guard<std::mutex> lg(log_mutex);
-        std::cout << "[ThreadPool][L/F][#" << lf_id << "][tid=" << pthread_self() << "] 启动" << std::endl;
+        LOG_INFO("%s", ("[ThreadPool][L/F][#" + std::to_string(lf_id) + "][tid=" + std::to_string(pthread_self()) + "] 启动").c_str());
     }
     if (handle_set_ == nullptr)
     {
-        std::cerr << "[ThreadPool] L/F: handle_set_ is nullptr" << std::endl;
+        LOG_ERROR("%s", "[ThreadPool] L/F: handle_set_ is nullptr");
         return;
     }
     while (true)
@@ -280,7 +280,7 @@ void ThreadPool<T>::run_L_F()
         // 当前线程加入线程集，等待成为领导者
         thread_set_.join();
         // 现在是领导者，负责监听I/O事件
-        std::cout << "[L/F] 线程 " << pthread_self() << " 成为领导者" << std::endl;
+        LOG_INFO("%s", ("[L/F] 线程 " + std::to_string(pthread_self()) + " 成为领导者").c_str());
 
         // 等待IO事件
         int ready_count = handle_set_->wait_for_event(-1); // 阻塞等待I/O事件
@@ -290,7 +290,7 @@ void ThreadPool<T>::run_L_F()
         // 有准备好的IO事件，当前线程处理事件，需要推选一个新的领导者
         thread_set_.promote_new_leader();
 
-        std::cout << "[L/F] 线程 " << pthread_self() << " 推选新的领导者" << std::endl;
+        LOG_INFO("%s", ("[L/F] 线程 " + std::to_string(pthread_self()) + " 推选新的领导者").c_str());
 
         // 处理准备好的IO事件
         for (int i = 0; i < ready_count; ++i)
@@ -305,7 +305,7 @@ void ThreadPool<T>::run_L_F()
         // 状态转换
         thread_set_.transition_state();
 
-        std::cout << "[L/F] 线程 " << pthread_self() << " 处理完成" << std::endl;
+        LOG_INFO("%s", ("[L/F] 线程 " + std::to_string(pthread_self()) + " 处理完成").c_str());
     }
 }
 

@@ -56,7 +56,7 @@ void http_request::init_mysql(SQLConnectionPool *conn_pool)
     }
     if (mysql_query(mysql_, "SELECT username, password FROM user"))
     {
-        std::cout << "MYSQL获取用户名与密码错误: " << mysql_error(mysql_) << std::endl;
+        LOG_ERROR("%s", (std::string("[http_request] MYSQL_QUERY_ERROR: ") + mysql_error(mysql_)).c_str());
         return;
     }
 
@@ -80,7 +80,7 @@ void http_request::close_connection(bool real_close)
 {
     if (real_close && sockfd_ != -1)
     {
-        std::cout << "close connection: " << sockfd_ << std::endl;
+        LOG_ERROR("%s", (std::string("[http_request] close connection: ") + std::to_string(sockfd_)).c_str());
         close(sockfd_);
         sockfd_ = -1;
         user_count_--;
@@ -105,7 +105,7 @@ http_message::HTTP_CODE http_request::process_request()
             http_status = parse_request_line(text);
             if (http_status == BAD_REQUEST)
             {
-                std::cout << "parse request line have not complete..." << std::endl; // TODO: 写进日志
+                LOG_ERROR("%s", "[http_request] parse request line have not complete...");
                 return BAD_REQUEST;
             }
             break;
@@ -115,7 +115,7 @@ http_message::HTTP_CODE http_request::process_request()
             http_status = parse_request_headers(text);
             if (http_status == BAD_REQUEST)
             {
-                std::cout << "parse request header have some error..." << std::endl; // TODO: 写进日志
+                LOG_ERROR("%s", "[http_request] parse request header have some error...");
                 return BAD_REQUEST;
             }
             else if (http_status == GET_REQUEST)
@@ -130,7 +130,7 @@ http_message::HTTP_CODE http_request::process_request()
             http_status = parse_request_content(text);
             if (http_status == BAD_REQUEST)
             {
-                std::cout << "parse request content have some error..." << std::endl; // TODO: 写进日志
+                LOG_ERROR("%s", "[http_request] parse request content have some error...");
                 return BAD_REQUEST;
             }
             else if (http_status == GET_REQUEST)
@@ -146,7 +146,7 @@ http_message::HTTP_CODE http_request::process_request()
         }
         default:
         {
-            std::cout << "server internal have some error..." << std::endl; // TODO: 写进日志
+            LOG_ERROR("%s", "[http_request] server internal have some error...");
             return INTERNAL_ERROR;
         }
         }
@@ -303,7 +303,7 @@ http_message::HTTP_CODE http_request::parse_request_headers(char *text)
     }
     else
     {
-        // TODO: 其他头部信息,暂不处理,写进日志
+    LOG_INFO("%s", (std::string("[http_request] 其他类型的请求头部信息: ") + headers_mes + ": " + headers_value).c_str());
     }
 
     return NO_REQUEST;
@@ -323,7 +323,7 @@ http_message::HTTP_CODE http_request::parse_request_content(char *text)
 // 处理请求，生成响应
 http_message::HTTP_CODE http_request::do_request()
 {
-    std::cout << "-----------处理请求do_request()---------------" << std::endl;
+    LOG_INFO("%s", "[http_request] 处理请求do_request()");
     // 生成客户请求的目标文件的完整路径
     strcpy(html_file_, html_root_);
     int len = strlen(html_root_);
@@ -331,7 +331,7 @@ http_message::HTTP_CODE http_request::do_request()
 
     // std::cout << "url_: " << url_ << std::endl;
     const char *request_url_ = strrchr(url_, '/');
-    std::cout << "request_url_: " << request_url_ << std::endl;
+    LOG_INFO("%s", ("[http_request] request_url_: " + std::string(request_url_)).c_str());
 
     // 生成目标文件路径
     char target_html_file[FILENAME_LEN];
@@ -339,7 +339,7 @@ http_message::HTTP_CODE http_request::do_request()
     // 请求根目录时，映射到index.html
     if (strcmp(request_url_, "/") == 0 || strcmp(request_url_, "/index") == 0 || strcmp(request_url_, "/index.html") == 0)
     {
-        std::cout << "请求根目录,导航到index.html" << std::endl;
+        LOG_INFO("%s", "[http_request] 请求根目录,导航到index.html");
         snprintf(target_html_file, FILENAME_LEN, "%s/index.html", html_root_);
     }
     else
@@ -361,14 +361,15 @@ http_message::HTTP_CODE http_request::do_request()
     }
     // 将target_html_file的内容复制到html_file_
     strncpy(html_file_, target_html_file, FILENAME_LEN - 1);
-    std::cout << "html文件路径: " << html_file_ << std::endl;
+
+    LOG_INFO("%s", ("[http_request] html文件路径: " + std::string(html_file_)).c_str());
 
     // 仅当请求为 POST 且有 body 时，解析 form-urlencoded 的 body 到键值 map
     std::string form_name, form_password;
     if (method_ == POST && content_ != NULL && content_length_ > 0)
     {
         std::string body(content_, content_length_);
-        std::cout << "content_: " << body << std::endl;
+        LOG_INFO("%s", ("[http_request] content_: " + body).c_str());
         // 简单解析 key=value&key2=value2 形式（不处理 URL 解码）
         size_t pos = 0;
         while (pos < body.size())
@@ -394,7 +395,7 @@ http_message::HTTP_CODE http_request::do_request()
     // 处理注册完成请求：仅在 /register_done 且为 POST 时执行写数据库逻辑
     if (strcmp(url_, "/register_done") == 0)
     {
-        std::cout << "注册用户: " << form_name << ", 密码: " << form_password << std::endl;
+        LOG_INFO("%s", ("[http_request] 注册用户: " + form_name + ", 密码: " + form_password).c_str());
         if (method_ != POST)
         {
             // 非 POST 请求，仅返回 register_done 页面（通常不会发生），保留映射的 html_file_
@@ -402,7 +403,7 @@ http_message::HTTP_CODE http_request::do_request()
         else if (form_name.empty() || form_password.empty())
         {
             // POST 但表单不完整，跳转到错误页
-            std::cout << "注册表单不完整" << std::endl;
+            LOG_ERROR("%s", "[http_request] 注册表单不完整");
             std::string new_url_ = "registerError.html";
             snprintf(html_file_, FILENAME_LEN, "%s/%s", html_root_, new_url_.c_str());
         }
@@ -411,7 +412,7 @@ http_message::HTTP_CODE http_request::do_request()
             // 判断用户是否已存在
             if (user_data_.find(form_name) != user_data_.end())
             {
-                std::cout << "用户已存在: " << form_name << std::endl;
+                LOG_ERROR("%s", "[http_request] 用户已存在");
                 std::string new_url_ = "registerError.html";
                 snprintf(html_file_, FILENAME_LEN, "%s/%s", html_root_, new_url_.c_str());
             }
@@ -431,25 +432,25 @@ http_message::HTTP_CODE http_request::do_request()
                     }
                     else
                     {
-                        std::cout << "无法从连接池获取 MySQL 连接" << std::endl;
+                        LOG_ERROR("%s", "[http_request] 无法从连接池获取 MySQL 连接");
                     }
                 }
                 else
                 {
-                    std::cout << "sql_conn_pool_ 未初始化，无法插入用户信息" << std::endl;
+                    LOG_ERROR("%s", "[http_request] sql_conn_pool_ 未初始化，无法插入用户信息");
                 }
 
                 if (res == 0)
                 {
                     user_data_[form_name] = form_password;
-                    std::cout << "用户注册成功: " << form_name << std::endl;
+                    LOG_INFO("%s", ("[http_request] 用户注册成功: " + form_name).c_str());
                     std::string new_url_ = "login.html";
                     snprintf(html_file_, FILENAME_LEN, "%s/%s", html_root_, new_url_.c_str());
                 }
                 else
                 {
                     if (mysql_ != NULL)
-                        std::cout << "MYSQL插入用户信息错误: " << mysql_error(mysql_) << std::endl;
+                        LOG_ERROR("%s", ("[http_request] MYSQL插入用户信息错误: " + std::string(mysql_error(mysql_))).c_str());
                     std::string new_url_ = "registerError.html";
                     snprintf(html_file_, FILENAME_LEN, "%s/%s", html_root_, new_url_.c_str());
                 }
@@ -461,14 +462,15 @@ http_message::HTTP_CODE http_request::do_request()
     // 处理登录请求：仅在 /login_done 且为 POST 时执行验证逻辑
     if (strcmp(url_, "/login_done") == 0)
     {
-        std::cout << "登录用户名: " << form_name << ", 密码: " << form_password << std::endl;
+        LOG_INFO("%s", ("[http_request] 登录用户名: " + form_name + ", 密码: " + form_password).c_str());
         if (method_ != POST)
         {
             // 非 POST 请求，仅返回 login_done 页面（通常不会发生）
         }
         else if (form_name.empty() || form_password.empty())
         {
-            std::cout << "登录表单不完整" << std::endl;
+
+            LOG_ERROR("%s", "[http_request] 登录表单不完整");
             std::string new_url_ = "loginError.html";
             snprintf(html_file_, FILENAME_LEN, "%s/%s", html_root_, new_url_.c_str());
         }
@@ -477,13 +479,13 @@ http_message::HTTP_CODE http_request::do_request()
             auto it = user_data_.find(form_name);
             if (it != user_data_.end() && it->second == form_password)
             {
-                std::cout << "用户登录成功: " << form_name << std::endl;
+                LOG_INFO("%s", ("[http_request] 用户登录成功: " + form_name).c_str());
                 std::string new_url_ = "function_choice.html";
                 snprintf(html_file_, FILENAME_LEN, "%s/%s", html_root_, new_url_.c_str());
             }
             else
             {
-                std::cout << "用户登录失败: " << form_name << std::endl;
+                LOG_ERROR("%s", ("[http_request] 用户登录失败: " + form_name).c_str());
                 std::string new_url_ = "loginError.html";
                 snprintf(html_file_, FILENAME_LEN, "%s/%s", html_root_, new_url_.c_str());
             }
@@ -493,14 +495,15 @@ http_message::HTTP_CODE http_request::do_request()
     // 图片页面
     if (strcmp(url_, "/pic") == 0)
     {
-        std::cout << "处理图片请求" << std::endl;
+
+        LOG_INFO("%s", "[http_request] 处理图片请求");
         std::string new_url_ = "picture.html";
         snprintf(html_file_, FILENAME_LEN, "%s/%s", html_root_, new_url_.c_str());
     }
     // 视频播放页面
     if (strcmp(url_, "/video") == 0)
     {
-        std::cout << "处理视频请求" << std::endl;
+        LOG_INFO("%s", "[http_request] 处理视频请求");
         std::string new_url_ = "video.html";
         snprintf(html_file_, FILENAME_LEN, "%s/%s", html_root_, new_url_.c_str());
     }
@@ -509,12 +512,12 @@ http_message::HTTP_CODE http_request::do_request()
     int ret = stat(html_file_, &file_stat_);
     if (ret < 0)
     {
-        std::cout << "html文件未找到: " << html_file_ << std::endl; // 返回404界面？
+        LOG_ERROR("%s", ("[http_request] html文件未找到: " + std::string(html_file_)).c_str());
         return NO_RESOURCE;                                         // 目标文件不存在
     }
     if ((file_stat_.st_mode & S_IROTH) == 0)
     {                                                               // 判断文件是否有读权限
-        std::cout << "html文件无权限: " << html_file_ << std::endl; // 返回403界面？
+        LOG_ERROR("%s", ("[http_request] html文件无权限: " + std::string(html_file_)).c_str()); // 返回403界面？
         return FORBIDDEN_REQUEST;                                   // 无访问权限
     }
     if (S_ISDIR(file_stat_.st_mode))
@@ -525,7 +528,7 @@ http_message::HTTP_CODE http_request::do_request()
     int fd = open(html_file_, O_RDONLY); // 以只读方式打开文件
     if (fd < 0)
     {
-        std::cout << "打开文件失败: " << html_file_ << " errno:" << errno << std::endl;
+        LOG_ERROR("%s", ("[http_request] 打开文件失败: " + std::string(html_file_) + " errno:" + std::to_string(errno)).c_str());
         return NO_RESOURCE;
     }
     // 文件内存映射
@@ -533,7 +536,7 @@ http_message::HTTP_CODE http_request::do_request()
     close(fd);
     if (html_file_addr_ == MAP_FAILED)
     {
-        std::cout << "mmap 文件失败: " << html_file_ << " size:" << file_stat_.st_size << std::endl;
+        LOG_ERROR("%s", ("[http_request] mmap 文件失败: " + std::string(html_file_) + " size:" + std::to_string(file_stat_.st_size)).c_str());
         html_file_addr_ = NULL;
         return NO_RESOURCE;
     }

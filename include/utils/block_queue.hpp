@@ -27,9 +27,7 @@ public:
     }
 
     ~block_queue(){
-        mutex_.lock();
-        if(queue_)  delete queue_;
-        mutex_unlock(); 
+ 
     }
 
     // 清空队列
@@ -37,7 +35,7 @@ public:
         mutex_.lock();
         std::queue<T> empty;
         swap(empty, queue_);
-        mutex.unlock();
+        mutex_.unlock();
     }
 
     // 判断队列是否满
@@ -65,7 +63,7 @@ public:
     // 返回队首元素
     bool front(T &value){
         mutex_.lock();
-        if(size_ == 0){
+        if(queue_.size() == 0){
             mutex_.unlock();
             return false;
         }
@@ -77,7 +75,7 @@ public:
     // 返回队尾元素
     bool back(T &value){
         mutex_.lock();
-        if(size_ == 0){
+        if(queue_.size() == 0){
             mutex_.unlock();
             return false;
         }
@@ -123,12 +121,13 @@ public:
         while(queue_.size() <= 0){
             // 如果while或者if判断的时候，满足执行条件，线程便会调用pthread_cond_wait阻塞自己，
             // 此时它还在持有锁，如果他不解锁，那么其他线程将会无法访问公有资源。
-            if(!cond_.wait(mutex_.get())){  
+            if(!cond_.wait(*mutex_.get())){
                 mutex_.unlock();
                 return false;
             }
         }
-        item = queue_.pop();
+        item = queue_.front();
+        queue_.pop();
         mutex_.unlock();
         return true;
     }
@@ -144,4 +143,4 @@ private:
 
 };
 
-#endif;
+#endif  //_BLOCK_QUEUE_HPP_

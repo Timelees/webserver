@@ -57,10 +57,12 @@ void conn_timer_manager::tick()
         }
 
         // 日志输出
-        std::cout << "[conn_timer_manager::tick] expire now, fd="
-                  << (timer && timer->user_data_ ? timer->user_data_->sockfd : -1)
-                  << ", expire=" << timer->expire << ", now=" << cur << std::endl;
-
+        LOG_INFO("%s", ("[conn_timer_manager::tick] expire now, fd=" +
+                std::to_string(timer && timer->user_data_ ? timer->user_data_->sockfd : -1) +
+                ", expire=" + std::to_string(timer->expire) +
+                ", now=" + std::to_string(cur))
+                .c_str());
+        
         if (timer->cb_func_)
         {
             timer->cb_func_(timer->user_data_);
@@ -73,11 +75,10 @@ void conn_timer_manager::tick()
 
 void conn_timer_manager::print_timer(){
     auto it = timers_list_.begin();
-    std::cout << "当前的定时器列表：" << std::endl;
+    LOG_INFO("%s", "[conn_timer_manager::print_timer] current timer_manager ");
     while(it != timers_list_.end()){
         util_timer *timer = *it;
-        std::cout << "-----fd = " << timer->user_data_->sockfd << ", expire = " << timer->expire << std::endl;
+        LOG_INFO("%s", ("-----fd = " + std::to_string(timer->user_data_->sockfd) + ", expire = " + std::to_string(timer->expire)).c_str());
         it++;
     }
-
 }

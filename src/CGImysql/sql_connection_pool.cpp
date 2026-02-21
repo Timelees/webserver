@@ -10,7 +10,7 @@ SQLConnectionPool::~SQLConnectionPool(){
 }
 
 // 初始化数据库连接池
-void SQLConnectionPool::init(std::string url, std::string User, std::string PassWord, std::string DataBaseName, int Port, int MaxConn, bool close_log){
+void SQLConnectionPool::init(std::string url, std::string User, std::string PassWord, std::string DataBaseName, int Port, int MaxConn, int close_log){
     url_ = url;
     port_ = Port;
     user_ = User;
@@ -24,15 +24,13 @@ void SQLConnectionPool::init(std::string url, std::string User, std::string Pass
         MYSQL *conn = NULL;
         conn = mysql_init(conn);
         if(conn == NULL){
-            // TODO: 写入日志
-            std::cout << "MySQL Error: " << mysql_error(conn) << std::endl;
+            LOG_ERROR("%s", (std::string("[SQLConnectionPool] mysql_init failed: ") + mysql_error(conn)).c_str());
             exit(1);
         }
         conn = mysql_real_connect(conn, url_.c_str(), user_.c_str(), password_.c_str(),
                                    database_name_.c_str(), Port, NULL, 0);
         if (conn == NULL) {
-            // TODO: 写入日志
-            std::cout << "MySQL Error: " << mysql_error(conn) << std::endl;
+            LOG_ERROR("%s", (std::string("[SQLConnectionPool] mysql_real_connect failed: ") + mysql_error(conn)).c_str());
             exit(1);
         }
         // 将连接放入连接池
@@ -48,7 +46,7 @@ void SQLConnectionPool::init(std::string url, std::string User, std::string Pass
 MYSQL *SQLConnectionPool::GetSQLConnection() {
     MYSQL *conn = NULL;
     if (0 == conn_list_.size()){
-        std::cout << "数据库连接池为空,获取连接失败!" << std::endl;
+        LOG_ERROR("%s", "[SQLConnectionPool] 数据库连接池为空,获取连接失败!");
         return NULL;
     }
 
@@ -68,7 +66,7 @@ MYSQL *SQLConnectionPool::GetSQLConnection() {
 // 释放当前正在使用的数据库连接
 bool SQLConnectionPool::ReleaseSQLConnection(MYSQL *conn) {
     if (conn == NULL){
-        std::cout << "释放连接失败，连接为空!" << std::endl;
+        LOG_ERROR("%s", "[SQLConnectionPool] 释放连接失败，连接为空!");
         return false;
     }
     if (conn) {
@@ -106,12 +104,12 @@ bool SQLConnectionPool::FindTableExists(MYSQL *conn, std::string table_name){
     // SELECT TABLE_NAME  FROM INFORMATION_SCHEMA.TABLES  WHERE TABLE_SCHEMA = DATABASE()    AND TABLE_NAME = 'user'  LIMIT 1;
     std::string query = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '" + table_name + "' LIMIT 1;";
     if(mysql_query(conn, query.c_str())){
-        std::cout << "MYSQL查询数据表(" << table_name << ")错误: " << mysql_error(conn) << std::endl;
+        LOG_ERROR("%s", (std::string("[SQLConnectionPool] MYSQL查询数据表(") + table_name + ")错误: " + mysql_error(conn)).c_str());
         return false;
     }
     MYSQL_RES *result = mysql_store_result(conn);
     if(result == NULL){
-        std::cout << "MYSQL获取结果集错误: " << mysql_error(conn) << std::endl;
+        LOG_ERROR("%s", (std::string("[SQLConnectionPool] MYSQL获取结果集错误: ") + mysql_error(conn)).c_str());
         return false;
     }
     bool exists = (mysql_num_rows(result) > 0);     // 存在table_name, 返回true
@@ -127,9 +125,9 @@ void SQLConnectionPool::CreateTable(MYSQL *conn, std::string table_name, std::un
     create_table_query = create_table_query.substr(0, create_table_query.size()-1); // 去掉最后一个逗号
     create_table_query += ") ENGINE=InnoDB CHARSET=utf8;";
     if(mysql_query(conn, create_table_query.c_str())){
-        std::cout << "MYSQL创建数据表(" << table_name << ")错误: " << mysql_error(conn) << std::endl;
+        LOG_ERROR("%s", (std::string("[SQLConnectionPool] MYSQL创建数据表(") + table_name + ")错误: " + mysql_error(conn)).c_str());
     }else{
-        std::cout << "MYSQL创建数据表(" << table_name << ")成功!" << std::endl;
+        LOG_INFO("%s", (std::string("[SQLConnectionPool] MYSQL创建数据表(") + table_name + ")成功!").c_str());
     }
 }
 
