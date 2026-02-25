@@ -5,6 +5,9 @@ project(webserver)
 # 源文件列表
 file(GLOB_RECURSE SRC ${PROJECT_SOURCE_DIR}/src/*.cpp)
 
+# 兜底：确保 Config 实现被编进目标（避免 GLOB/CMake 缓存导致漏编进而出现 undefined reference）
+list(APPEND SRC ${PROJECT_SOURCE_DIR}/src/utils/config.cpp)
+
 # 设置可执行文件的输出目录
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
 

@@ -101,9 +101,9 @@ void WebServer::trigMode()
 // 日志设置
 void WebServer::setLog(){
     if(!close_log_){
-        Log::get_instance()->init("./webserver.log", close_log_, 8192, 5000000, 1000);  // 使用异步日志
+        Log::get_instance()->init("./logs/webserver.log", close_log_, 8192, 5000000, 1000);  // 使用异步日志
     }else{
-        Log::get_instance()->init("./webserver.log", close_log_, 8192, 5000000, 0);     // 使用同步日志
+        Log::get_instance()->init("./logs/webserver.log", close_log_, 8192, 5000000, 0);     // 使用同步日志
     }
 }
 

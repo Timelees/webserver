@@ -20,7 +20,8 @@ public:
     }
 
     static void *flush_log_thread(void *args){
-        Log::get_instance()->async_write_log();
+    Log::get_instance()->async_write_log();
+    return nullptr;
     }
     // 初始化
     bool init(const char* file_name, int close_log, int log_buf_size = 8192, int max_lines = 5000000, int max_queue_size = 0);
@@ -46,6 +47,8 @@ private:
             fputs(single_log.c_str(), fp_);
             mutex_.unlock();
         }
+
+    return nullptr;
     }
 
 private:
